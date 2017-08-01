@@ -1,0 +1,62 @@
+- name: mx-mnist-lenet5-scheduler  // 
+  owner: ouyangwenqi@bytedance.com
+  disable_timestamp_on_name: 1
+  repos:
+      quark: git@code.byted.org:lab/quark.git
+ 
+  cpus: 0.2
+  mem: 1024
+  disk: 10240
+  gpus: 0 //scheduler 不需要有GPU的资源
+  ports: 1
+ 
+  sd:
+      - mx-mnist-lenet5-scheduler: 0
+        // 因为worker和server都需要scheduler在哪儿，所以首先需要通过头条的服务发现服务给scheduler注册一个域名（mx-img-cls-scheduler）
+ 
+  sh: sleep 60; cd ~/workspace; PS_VERBOSE=1 LD_LIBRARY_PATH=/usr/local/cuda-8.0/lib64/ python train_mnist_lenet5.py --role scheduler --scheduler "dom:mx-mnist-lenet5-scheduler" --num-workers 4 --num-servers 1
+  //执行具体的命令，这里的参数含义是
+  // --scheduler: 告诉scheduler的所在位置，以dom:开头表示域名，以ip:开头表示host:port
+  // --num-worker: 一共有几个worker
+  // --num-server: 一共有几个server
+ 
+  chronos: http://chronos-gpu.m.byted.org
+ 
+- name: mx-mnist-lenet5-server
+  owner: ouyangwenqi@bytedance.com
+  disable_timestamp_on_name: 1
+  repos:
+      quark: git@code.byted.org:lab/quark.git
+ 
+  cpus: 1
+  mem: 8192
+  disk: 2048
+  gpus: 0
+  ports: 0
+ 
+  sh: sleep 120; cd ~/workspace; PS_VERBOSE=1 LD_LIBRARY_PATH=/usr/local/cuda-8.0/lib64/ python train_mnist_lenet5.py --role server --scheduler "dom:mx-mnist-lenet5-scheduler" --num-workers 4 --num-servers 1
+ 
+  chronos: http://chronos-gpu.m.byted.org
+ 
+- name: mx-mnist-lenet5-worker
+  owner: ouyangwenqi@bytedance.com
+  disable_timestamp_on_name: 1
+  repos:
+      quark: git@code.byted.org:lab/quark.git
+ 
+  cpus: 1
+  mem: 8192
+  disk: 2048
+  gpus: 1
+ 
+  shard:
+      count: 4
+      get_from_hdfs:
+          - min: 0
+            max: 31
+            from: /mnt/cephfs/data/lab/open/imgnet/256/imgnet.db.{sn}
+            to: .
+ 
+  sh: sleep 180; cd ./quark/mxnet/imgcls/; PS_VERBOSE=1 LD_LIBRARY_PATH=/usr/local/cuda/lib64/ python train.py --num-classes 1000 --network inception-bn-full --role worker --scheduler "dom:mx-img-cls-scheduler" --num-workers 4 --num-servers 1 --kv-store dist-sync --width 224 --height 224 --batch-size 64 --epoch 200 --metric-conf "metric.conf" --metric-prefix "lab.dl.imgnet.inception-bn-full" --model-prefix "imgnet-inception-bn-full"
+ 
+  chronos: http://chronos-gpu.m.byted.org
